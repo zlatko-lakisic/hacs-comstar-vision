@@ -7,7 +7,6 @@ import base64
 import json
 import logging
 import re
-import ssl
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -326,9 +325,9 @@ class SessionBridge:
     ) -> dict[str, Any]:
         """Run a single agent (`type: direct_agent`).
 
-        Optional ``images``: ``[{mimeType, dataBase64, name?}, ...]`` multimodal
-        extension for Comstar Vision. Engines that ignore unknown fields stay
-        text-only; engines that implement the handoff route them to a VLM.
+        Optional ``images`` — ``[{mimeType, dataBase64, name?}, ...]`` in display
+        order. AO routes those turns to a vision model; engines that predate the
+        multimodal protocol ignore the field and answer from ``text`` alone.
         """
         if not self.is_active or self._ws is None:
             raise RuntimeError("Session bridge is not active — cannot run client.* agents")
