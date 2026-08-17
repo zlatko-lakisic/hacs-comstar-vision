@@ -1,0 +1,77 @@
+image_analyzer:
+  name: Analyze camera stills
+  description: >
+    Drop-in for llmvision.image_analyzer. Sends local JPEG paths over AO Reach
+    multimodal chat and returns response_text (3-line classify/log/phone).
+    Requires ADA engine multimodal support — see docs/AO_REACH_MULTIMODAL_HANDOFF.md.
+  fields:
+    image_file:
+      name: Image file(s)
+      description: Absolute path, or newline-separated paths (blueprint style)
+      required: true
+      example: /config/www/tmp/near_driveway_1.jpg
+      selector:
+        text:
+          multiline: true
+    message:
+      name: Prompt
+      required: true
+      selector:
+        text:
+          multiline: true
+    model:
+      name: Model hint
+      example: gpt-4o-mini
+      selector:
+        text:
+    temperature:
+      name: Temperature
+      selector:
+        number:
+          min: 0
+          max: 2
+          step: 0.1
+    max_tokens:
+      name: Max tokens
+      selector:
+        number:
+          min: 50
+          max: 2000
+    target_width:
+      name: Target width (px)
+      selector:
+        number:
+          min: 320
+          max: 4096
+    mock_reply:
+      name: Mock reply (tests only)
+      selector:
+        text:
+          multiline: true
+probe_reach:
+  name: Probe AO Reach
+  description: >
+    Start Reach session and report pairing, sessionOverlay and mcpTunnel status.
+refresh_overlay:
+  name: Refresh Reach overlay
+  description: Re-register vision overlay agents on the active session.
+pair:
+  name: Pair with AO engine (mTLS)
+  description: >
+    Redeem an AO enrollment token for client mTLS material. Mint for
+    appId comstar-vision on ADA.
+  fields:
+    enroll_token:
+      name: Enrollment token
+      required: true
+      selector:
+        text:
+          type: password
+    client_name:
+      name: Client name (certificate CN)
+      example: comstar-vision
+      selector:
+        text:
+clear_pairing:
+  name: Clear AO pairing
+  description: Delete stored mTLS material and stop the active Reach session.

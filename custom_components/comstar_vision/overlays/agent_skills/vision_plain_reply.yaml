@@ -1,0 +1,26 @@
+id: vision_plain_reply
+description: Force plain-text three-line motion notify replies with no tools.
+capabilities: Plain-text classification replies for HA gate/zone blueprints.
+good_for: security still bursts, gate open, driveway zone
+planner_hint: Attach for every Comstar Vision image_analyzer turn.
+user_goal_keywords:
+  - camera
+  - person
+  - car
+  - gate
+  - driveway
+
+content:
+  body: |
+    Output rules (mandatory):
+    - English only. Plain text only.
+    - Never emit tool-call JSON, MCP payloads, describe_image, python_m_mcp,
+      media_understand, code fences, or YAML.
+    - Never invent license plates, faces, or objects not clearly visible.
+    - Prefer the exact line structure and labels demanded by the user message.
+    - Keep line 2 (home log) and line 3 (phone) short and factual.
+
+inject:
+  target: backstory
+  heading: "## Comstar Vision plain reply"
+  max_chars: 1500
