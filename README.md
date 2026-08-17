@@ -14,22 +14,29 @@ Home Assistant motion / gate still-burst analysis via [Agentic Orchestration](ht
 
 - `comstar_vision.image_analyzer` — drop-in for `llmvision.image_analyzer` (`response_text`)
 - Reach `SessionBridge` → ADA engine `:8765` (session overlay + mTLS)
-- Overlay agent `client.vision_scene_analyzer` (plain-text 3-line replies)
+- Overlay agent `client.vision_scene_analyzer` (plain-text 3-line replies) — **AO picks the vision model**
+- Catalog-driven settings: agents, MCP servers, skills, harness (overlaid onto the selected AO)
 - Services: `pair`, `probe_reach`, `clear_pairing`, `refresh_overlay`
 
 ## Install
 
 See [docs/INSTALL.md](docs/INSTALL.md).
 
-Quick path: HACS custom repo `https://github.com/zlatko-lakisic/hacs-comstar-vision` → add integration → engine `https://10.0.10.16:8765` → mint Bearer for **`appId: comstar-vision`**.
+Quick path: HACS custom repo `https://github.com/zlatko-lakisic/hacs-comstar-vision` → add integration → engine `https://10.0.10.16:8765` → mint Bearer for **`appId: comstar-vision`** → select agents / MCPs / skills / harness from the AO catalog.
 
-## AO multimodal prerequisite
+## Orchestrator-driven model selection
 
-Reach chat is text-only until the engine accepts an `images` field. Client support is already in this repo; ADA work is described in:
+Comstar Vision does **not** pin an OpenAI (or any) model. Configure capability (agents, MCPs, skills, harness) in the integration options; the overlay is registered on ADA and the orchestrator chooses a vision-capable model for image turns. Optional service field `model` is an escape hatch only (`[model=…]` prefix).
+
+ADA must have at least one vision-capable model configured (local VLM or valid cloud key). Missing vision → `vision_unavailable` (fail-closed).
+
+## AO multimodal
+
+Reach multimodal `images` on `chat` / `direct_agent` landed in AO Reach **0.10.0** and the ADA handoff:
 
 **[docs/AO_REACH_MULTIMODAL_HANDOFF.md](docs/AO_REACH_MULTIMODAL_HANDOFF.md)**
 
-Until that ships, leave **Multimodal ready** off — `image_analyzer` returns a clear error so blueprints fall back safely.
+Enable **Multimodal ready** in options after ADA is verified.
 
 ## Services
 

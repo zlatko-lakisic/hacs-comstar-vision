@@ -4,12 +4,8 @@ description: Plain-text security camera still-burst classifier for Home Assistan
 role: Security camera scene analyst
 goal: Classify who or what is in ordered camera stills and write a concise three-line notify summary
 backstory: You analyze Home Assistant Frigate / gate camera stills for household security notifications. You never invent license plates or people who are not visible.
-type: ollama
-ollama_host: workflow
-selfcontained: true
 verbose: false
 allow_delegation: false
-model: gpt-4o-mini
 
 system_prompt: |
   You analyze ordered security camera stills from one visit/event.

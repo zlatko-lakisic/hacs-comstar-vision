@@ -12,7 +12,12 @@ from typing import Any
 import aiohttp
 
 from .connection_config import ReachConnectionConfig
-from .mtls import assert_reach_mtls_uses_tls, load_reach_mtls_material
+from .mtls import (
+    assert_reach_mtls_uses_tls,
+    build_reach_ssl_context,
+    host_is_ip_literal,
+    load_reach_mtls_material,
+)
 
 
 def _ssl_context_for_config(config: ReachConnectionConfig) -> ssl.SSLContext | None:
@@ -27,12 +32,12 @@ def _ssl_context_for_config(config: ReachConnectionConfig) -> ssl.SSLContext | N
         (material_path / "cert.pem").write_text(material.client_cert_pem, encoding="utf-8")
         (material_path / "key.pem").write_text(material.client_key_pem, encoding="utf-8")
         (material_path / "ca.pem").write_text(material.ca_pem, encoding="utf-8")
-    ctx = ssl.create_default_context(cafile=str(material_path / "ca.pem"))
-    ctx.load_cert_chain(
+    return build_reach_ssl_context(
+        cafile=str(material_path / "ca.pem"),
         certfile=str(material_path / "cert.pem"),
         keyfile=str(material_path / "key.pem"),
+        check_hostname=not host_is_ip_literal(config.base_url),
     )
-    return ctx
 
 
 @dataclass(frozen=True)

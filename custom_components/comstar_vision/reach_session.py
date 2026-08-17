@@ -8,11 +8,37 @@ from typing import Any
 
 from .ao_reach.connection_config import ReachConnectionConfig
 from .ao_reach.mcp_bootstrap import EmptySessionMcpBootstrap
+from .ao_reach.overlay_packer import OverlayPacker, SessionOverlayPack
 from .ao_reach.session_bridge import SessionBridge, SessionBridgeState
-from .const import DEFAULT_APP_ID, DEFAULT_ENABLED_AGENTS
-from .pairing import AoPairingService
+from .const import (
+    AGENT_VISION_SCENE,
+    DEFAULT_APP_ID,
+    DEFAULT_ENABLED_AGENTS,
+    DEFAULT_ENABLED_MCPS,
+    DEFAULT_ENABLED_SKILLS,
+)
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class _HarnessAwarePacker(OverlayPacker):
+    """Inject harnessProfile onto the bundled vision overlay agent."""
+
+    def __init__(self, harness_profile: str | None = None) -> None:
+        super().__init__()
+        self._harness_profile = (harness_profile or "").strip() or None
+
+    def pack(self, overlay_root: str | Path, **kwargs: Any) -> SessionOverlayPack:
+        pack = super().pack(overlay_root, **kwargs)
+        if not self._harness_profile:
+            return pack
+        agents: list[dict[str, Any]] = []
+        for agent in pack.agents:
+            out = dict(agent)
+            if str(out.get("id") or "") == AGENT_VISION_SCENE:
+                out["harnessProfile"] = self._harness_profile
+            agents.append(out)
+        return SessionOverlayPack(agents=agents, mcps=list(pack.mcps), skills=list(pack.skills))
 
 
 class VisionReachSession:
@@ -27,7 +53,11 @@ class VisionReachSession:
         ttl_seconds: int = 3600,
         overlay_root: Path,
         enabled_agents: list[str] | None = None,
-        pairing: AoPairingService | None = None,
+        enabled_mcps: list[str] | None = None,
+        enabled_skills: list[str] | None = None,
+        harness_profile: str | None = None,
+        session_env: dict[str, str] | None = None,
+        pairing: Any = None,
     ) -> None:
         self.engine_url = engine_url
         self.app_id = app_id
@@ -35,9 +65,13 @@ class VisionReachSession:
         self.ttl_seconds = ttl_seconds
         self.overlay_root = overlay_root
         self.enabled_agents = list(enabled_agents or DEFAULT_ENABLED_AGENTS)
+        self.enabled_mcps = list(enabled_mcps or DEFAULT_ENABLED_MCPS)
+        self.enabled_skills = list(enabled_skills or DEFAULT_ENABLED_SKILLS)
+        self.harness_profile = (harness_profile or "").strip() or None
+        self.session_env = dict(session_env or {})
         self.pairing = pairing
         self.bootstrap = EmptySessionMcpBootstrap()
-        self.bridge = SessionBridge()
+        self.bridge = SessionBridge(packer=_HarnessAwarePacker(self.harness_profile))
         self.connected = False
         self.last_error: str | None = None
 
@@ -57,6 +91,11 @@ class VisionReachSession:
             dynamic_planning=True,
             default_run_mode="dynamic",
             mtls=self.pairing.mtls_config() if self.pairing else None,
+            session_env=self.session_env or None,
+            # Empty allowlists mean unrestricted — only send when non-empty.
+            allowed_agent_provider_ids=self.enabled_agents or None,
+            allowed_mcp_provider_ids=self.enabled_mcps or None,
+            allowed_skill_ids=self.enabled_skills or None,
         )
 
     @property

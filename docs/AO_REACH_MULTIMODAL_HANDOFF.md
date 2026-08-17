@@ -3,9 +3,9 @@
 **Consumer:** Home Assistant HACS integration [`hacs-comstar-vision`](https://github.com/zlatko-lakisic/hacs-comstar-vision) (`comstar_vision`)  
 **Engine:** ADA AO at `10.0.10.16` — Reach WSS `https://10.0.10.16:8765/ws`  
 **appId:** `comstar-vision` (do **not** reuse `comstar-ha`, `agentic-watering`, or `home-assistant`)  
-**Status:** Client already sends `images` on `chat` / `direct_agent`. Engine must accept and route them to a vision model before HA enables **Multimodal ready**.
+**Status:** Multimodal `images` on `chat` / `direct_agent` landed in AO Reach **0.10.0** and is deployed on ADA. Comstar Vision (v1.2+) does **not** pin a model — AO selects a vision-capable model for image turns. Configure agents / MCPs / skills / harness in the HA integration options; leave service `model` empty unless you need an explicit override.
 
-This document is the only AO / AO Reach work scope for the motion-AI cutover. No AO repo edits land in the Comstar Vision workstream.
+This document remains the AO / AO Reach multimodal work scope for the original cutover. No further AO repo edits are required for orchestrator-driven capability config.
 
 ---
 

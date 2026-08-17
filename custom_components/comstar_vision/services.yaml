@@ -20,7 +20,10 @@ image_analyzer:
         text:
           multiline: true
     model:
-      name: Model hint
+      name: Model override (optional)
+      description: >
+        Escape hatch only. Leave empty so AO picks a vision-capable model.
+        When set, prefixes the prompt with [model=…].
       example: gpt-4o-mini
       selector:
         text:

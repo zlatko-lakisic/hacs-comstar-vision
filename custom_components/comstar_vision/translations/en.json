@@ -2,18 +2,27 @@
   "config": {
     "step": {
       "user": {
-        "title": "Comstar Vision (AO Reach)",
-        "description": "Connect to the ADA AO engine (:8765) for gate/zone still analysis. Mint a token with appId comstar-vision. Leave Multimodal ready off until AO implements docs/AO_REACH_MULTIMODAL_HANDOFF.md. If the engine requires mTLS, paste an enrollment token during setup.",
+        "title": "Comstar Vision — connection",
+        "description": "Connect to the ADA AO engine (:8765). Mint an API token with appId comstar-vision. If the engine requires mTLS, paste an enrollment token. AO picks the vision model — do not configure one here.",
         "data": {
           "engine_url": "AO engine base URL",
           "api_token": "API token (ao_…)",
           "enroll_token": "mTLS enrollment token (one-time)",
           "app_id": "Reach appId",
           "ttl_seconds": "Session TTL seconds",
-          "enabled_agents": "Selected vision agents",
-          "default_model": "Default model hint",
           "default_target_width": "Default still width (px)",
-          "multimodal_ready": "AO multimodal images ready (enable after ADA handoff)"
+          "multimodal_ready": "AO multimodal images ready"
+        }
+      },
+      "capabilities": {
+        "title": "Comstar Vision — capabilities",
+        "description": "{catalog_status} Select agents, MCP servers, skills, and an optional harness. AO orchestrates execution from this overlay.",
+        "data": {
+          "enabled_agents": "Agents",
+          "enabled_mcps": "MCP servers",
+          "enabled_skills": "Skills",
+          "harness_profile": "Harness profile",
+          "session_env": "Session env (KEY=VALUE per line)"
         }
       }
     },
@@ -24,17 +33,27 @@
   "options": {
     "step": {
       "init": {
-        "title": "Comstar Vision options",
+        "title": "Comstar Vision — connection",
+        "description": "Engine connection settings. AO picks the vision model.",
         "data": {
           "engine_url": "AO engine base URL",
           "api_token": "API token (ao_…)",
           "enroll_token": "mTLS enrollment token (one-time, leave blank to keep pairing)",
           "app_id": "Reach appId",
           "ttl_seconds": "Session TTL seconds",
-          "enabled_agents": "Selected vision agents",
-          "default_model": "Default model hint",
           "default_target_width": "Default still width (px)",
-          "multimodal_ready": "AO multimodal images ready (enable after ADA handoff)"
+          "multimodal_ready": "AO multimodal images ready"
+        }
+      },
+      "capabilities": {
+        "title": "Comstar Vision — capabilities",
+        "description": "{catalog_status} Select agents, MCP servers, skills, and an optional harness.",
+        "data": {
+          "enabled_agents": "Agents",
+          "enabled_mcps": "MCP servers",
+          "enabled_skills": "Skills",
+          "harness_profile": "Harness profile",
+          "session_env": "Session env (KEY=VALUE per line)"
         }
       }
     }

@@ -16,18 +16,24 @@ from homeassistant.helpers.typing import ConfigType
 from .const import (
     CONF_API_TOKEN,
     CONF_APP_ID,
-    CONF_DEFAULT_MODEL,
     CONF_DEFAULT_TARGET_WIDTH,
     CONF_ENABLED_AGENTS,
+    CONF_ENABLED_MCPS,
+    CONF_ENABLED_SKILLS,
     CONF_ENGINE_URL,
     CONF_ENROLL_TOKEN,
+    CONF_HARNESS_PROFILE,
     CONF_MULTIMODAL_READY,
+    CONF_SESSION_ENV,
     CONF_TTL_SECONDS,
     DEFAULT_APP_ID,
     DEFAULT_ENABLED_AGENTS,
+    DEFAULT_ENABLED_MCPS,
+    DEFAULT_ENABLED_SKILLS,
     DEFAULT_ENGINE_URL,
-    DEFAULT_MODEL,
+    DEFAULT_HARNESS_PROFILE,
     DEFAULT_MULTIMODAL_READY,
+    DEFAULT_SESSION_ENV,
     DEFAULT_TARGET_WIDTH,
     DEFAULT_TTL,
     DOMAIN,
@@ -77,6 +83,25 @@ def _merged_entry_data(entry: ConfigEntry) -> dict[str, Any]:
     return {**entry.data, **entry.options}
 
 
+def _parse_session_env(raw: Any) -> dict[str, str]:
+    """Accept dict or KEY=VALUE newline text."""
+    if isinstance(raw, dict):
+        return {str(k).strip(): str(v) for k, v in raw.items() if str(k).strip()}
+    text = str(raw or "").strip()
+    if not text:
+        return {}
+    out: dict[str, str] = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        if key:
+            out[key] = val.strip()
+    return out
+
+
 def _empty_response(*, error: str, question_id: str = "") -> dict[str, Any]:
     return {
         "response_text": "",
@@ -102,6 +127,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     data = _merged_entry_data(entry)
     overlay_root = Path(__file__).parent / "overlays"
     enabled_agents = list(data.get(CONF_ENABLED_AGENTS) or DEFAULT_ENABLED_AGENTS)
+    enabled_mcps = list(data.get(CONF_ENABLED_MCPS) or DEFAULT_ENABLED_MCPS)
+    enabled_skills = list(data.get(CONF_ENABLED_SKILLS) or DEFAULT_ENABLED_SKILLS)
+    harness_profile = str(
+        data.get(CONF_HARNESS_PROFILE) or DEFAULT_HARNESS_PROFILE
+    ).strip()
+    session_env = _parse_session_env(data.get(CONF_SESSION_ENV) or DEFAULT_SESSION_ENV)
     engine_url = str(data.get(CONF_ENGINE_URL) or DEFAULT_ENGINE_URL)
 
     material_dir = Path(hass.config.path(f"comstar_vision_mtls_{entry.entry_id}"))
@@ -116,6 +147,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ttl_seconds=int(data.get(CONF_TTL_SECONDS) or DEFAULT_TTL),
         overlay_root=overlay_root,
         enabled_agents=enabled_agents,
+        enabled_mcps=enabled_mcps,
+        enabled_skills=enabled_skills,
+        harness_profile=harness_profile or None,
+        session_env=session_env or None,
         pairing=pairing,
     )
 
@@ -125,7 +160,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "pairing": pairing,
         "overlay_root": overlay_root,
         "enabled_agents": enabled_agents,
-        "default_model": str(data.get(CONF_DEFAULT_MODEL) or DEFAULT_MODEL),
+        "enabled_mcps": enabled_mcps,
+        "enabled_skills": enabled_skills,
+        "harness_profile": harness_profile,
+        "session_env": session_env,
         "default_target_width": int(
             data.get(CONF_DEFAULT_TARGET_WIDTH) or DEFAULT_TARGET_WIDTH
         ),
@@ -173,6 +211,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 "mcp_tunnel": bool(getattr(sess.bridge, "mcp_tunnel", False)),
                 "state": getattr(st, "name", str(st)),
                 "enabled_agents": list(sess.enabled_agents),
+                "enabled_mcps": list(sess.enabled_mcps),
+                "enabled_skills": list(sess.enabled_skills),
+                "harness_profile": sess.harness_profile or "",
                 "engine_url": sess.engine_url,
             }
         except Exception as exc:  # noqa: BLE001
@@ -313,11 +354,11 @@ async def _async_image_analyzer(hass: HomeAssistant, call: ServiceCall) -> dict[
     if not message:
         return _empty_response(error="message is empty", question_id="")
 
-    model = str(call.data.get("model") or rt.get("default_model") or DEFAULT_MODEL)
+    # Optional escape hatch only — AO picks the vision model by default.
+    model = str(call.data.get("model") or "").strip()
     agents = list(call.data.get("selected_agents") or rt.get("enabled_agents") or [])
     timeout = float(call.data.get("timeout") or 180.0)
 
-    # Hint for engines that read model from the prompt prefix (optional).
     text = message
     if model:
         text = f"[model={model}]\n{message}"
