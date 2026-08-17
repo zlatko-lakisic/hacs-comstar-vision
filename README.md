@@ -4,6 +4,10 @@
   <img src="images/icon.png" alt="Comstar Vision" width="96">
 </p>
 
+<p align="center">
+  <img src="images/readme-hero.png" alt="Comstar Vision — night perimeter AI vision" width="100%">
+</p>
+
 Home Assistant motion / gate still-burst analysis via [Agentic Orchestration](https://github.com/zlatko-lakisic/agentic-orchestration) **AO Reach** — same framework as [Agentic Watering](https://github.com/zlatko-lakisic/hacs-agentic-watering) and [Comstar](https://github.com/zlatko-lakisic/hacs-comstar), replacing **LLM Vision** for driveway and perimeter notifies.
 
 ## Features
