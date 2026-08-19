@@ -92,7 +92,8 @@ class VisionReachSession:
             default_run_mode="dynamic",
             mtls=self.pairing.mtls_config() if self.pairing else None,
             session_env=self.session_env or None,
-            # Empty allowlists mean unrestricted — only send when non-empty.
+            # Omit allowlists when empty — AO 2.3+ isolates to overlay client.* only.
+            # Pin stock catalog ids explicitly in integration options to opt in.
             allowed_agent_provider_ids=self.enabled_agents or None,
             allowed_mcp_provider_ids=self.enabled_mcps or None,
             allowed_skill_ids=self.enabled_skills or None,
@@ -156,6 +157,7 @@ class VisionReachSession:
             run_mode="dynamic",
             selected_agent_provider_ids=agents,
             images=images,
+            priority="realtime",
             timeout=timeout,
         )
 

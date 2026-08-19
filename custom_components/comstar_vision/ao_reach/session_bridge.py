@@ -7,6 +7,7 @@ import base64
 import json
 import logging
 import re
+import ssl
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -74,6 +75,7 @@ class SessionBridge:
         self.error: str | None = None
         self.session_overlay = False
         self.mcp_tunnel = False
+        self.custom_tool_sandbox = False
         self.speech: SpeechCapabilities | None = None
         self.registered_agent_ids: list[str] = []
         self.registered_mcp_ids: list[str] = []
@@ -205,6 +207,7 @@ class SessionBridge:
         self._hello_wait = None
         self.session_overlay = bool(hello.get("sessionOverlay"))
         self.mcp_tunnel = bool(hello.get("mcpTunnel"))
+        self.custom_tool_sandbox = bool(hello.get("customToolSandbox"))
         if not self.session_overlay:
             raise RuntimeError(
                 "AO session overlay disabled — set AGENTIC_SERVE_SESSION_OVERLAY=1"
@@ -223,7 +226,14 @@ class SessionBridge:
                 speech_token=config.speech_token,
             )
 
-        boot = await mcp_bootstrap.prepare(self._mcp_host, mcp_tunnel=self.mcp_tunnel)
+        from .hybrid_mcp_bootstrap import HybridSessionMcpBootstrap
+
+        if isinstance(mcp_bootstrap, HybridSessionMcpBootstrap):
+            mcp_bootstrap.ao_custom_tool_sandbox = self.custom_tool_sandbox
+
+        boot = await mcp_bootstrap.prepare(
+            self._mcp_host, mcp_tunnel=self.mcp_tunnel, config=config
+        )
         self.client_mcp_warnings = list(boot.warnings)
         self.active_tunnel_bare_ids = list(boot.active_tunnel_bare_ids)
 
@@ -279,7 +289,7 @@ class SessionBridge:
         if not self.is_active or not self._last_config or not self._last_overlay_root:
             raise RuntimeError("Session bridge is not active")
         boot = await self._last_bootstrap.prepare(
-            self._mcp_host, mcp_tunnel=self.mcp_tunnel
+            self._mcp_host, mcp_tunnel=self.mcp_tunnel, config=self._last_config
         )
         pack = self._packer.pack(self._last_overlay_root, extra_mcps=boot.mcps)
         self._ack_wait = asyncio.get_event_loop().create_future()
@@ -318,6 +328,7 @@ class SessionBridge:
         text: str,
         context: str = "",
         question_id: str | None = None,
+        priority: str | int | None = None,
         mcp_provider_ids: list[str] | None = None,
         images: list[dict[str, Any]] | None = None,
         on_status: Callable[[ReachRunStatus], None] | None = None,
@@ -353,6 +364,8 @@ class SessionBridge:
             payload["mcpProviderIds"] = mcp_provider_ids
         if images:
             payload["images"] = list(images)
+        if priority is not None:
+            payload["priority"] = priority
         await self._send(payload)
         try:
             return await asyncio.wait_for(pending.done, timeout=timeout)
@@ -365,6 +378,7 @@ class SessionBridge:
         *,
         text: str,
         question_id: str | None = None,
+        priority: str | int | None = None,
         selected_agent_provider_ids: list[str] | None = None,
         run_mode: str | None = None,
         session_id: str | None = None,
@@ -403,6 +417,8 @@ class SessionBridge:
             payload["selectedAgentProviderIds"] = list(selected_agent_provider_ids)
         if images:
             payload["images"] = list(images)
+        if priority is not None:
+            payload["priority"] = priority
         await self._send(payload)
         try:
             return await asyncio.wait_for(pending.done, timeout=timeout)
@@ -410,11 +426,33 @@ class SessionBridge:
             self._pending_runs.pop(qid, None)
             raise TimeoutError(f"chat timed out ({qid})") from None
 
+    async def cancel(self, question_id: str) -> None:
+        """Ask the engine to cancel one in-flight chat / direct_agent by questionId.
+
+        Does not close the WebSocket or clear the session overlay. The pending
+        future completes with ReachRunError (code cancelled) when AO ends the run.
+        """
+        qid = (question_id or "").strip()
+        if not qid:
+            raise ValueError("cancel requires a non-empty question_id")
+        if not self.is_active or self._ws is None:
+            raise RuntimeError("Session bridge is not active — cannot cancel")
+        await self._send({"type": "cancel", "questionId": qid})
+        run = self._pending_runs.get(qid)
+        if run is not None and not run.done.done():
+            run.last_error = "Cancelled."
+            run.last_error_code = "cancelled"
+
+    async def cancel_run(self, question_id: str) -> None:
+        """Alias for [cancel]."""
+        await self.cancel(question_id)
+
     async def run_dynamic(
         self,
         *,
         text: str,
         question_id: str | None = None,
+        priority: str | int | None = None,
         selected_agent_provider_ids: list[str] | None = None,
         run_mode: str | None = None,
         session_id: str | None = None,
@@ -426,6 +464,7 @@ class SessionBridge:
         return await self.chat(
             text=text,
             question_id=question_id,
+            priority=priority,
             selected_agent_provider_ids=selected_agent_provider_ids,
             run_mode=run_mode,
             session_id=session_id,
@@ -479,6 +518,11 @@ class SessionBridge:
                     self._emit()
             self._on_run_chunk(msg)
         elif typ == "status":
+            if self._ack_wait and not self._ack_wait.done():
+                msg_text = str(msg.get("message") or "").strip()
+                if msg_text:
+                    self.register_progress = msg_text
+                    self._emit()
             self._on_run_status(msg)
         elif typ == "run_start":
             self._on_run_start(msg)
@@ -562,10 +606,15 @@ class SessionBridge:
         err = msg.get("error") or run.last_error
         code = msg.get("code") or run.last_error_code
         if not ok:
+            cancelled = str(code or "") == "cancelled"
             status = ReachRunStatus(
                 processing=False,
-                phase="error",
-                message=str(err) if err else "Request failed",
+                phase="cancelled" if cancelled else "error",
+                message=(
+                    str(err)
+                    if err
+                    else ("Cancelled." if cancelled else "Request failed")
+                ),
                 code=str(code) if code else None,
                 question_id=str(qid),
                 run_id=(str(msg["run_id"]) if msg.get("run_id") is not None else None),

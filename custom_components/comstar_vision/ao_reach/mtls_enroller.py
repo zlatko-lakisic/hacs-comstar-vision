@@ -56,7 +56,7 @@ class ReachMtlsEnroller:
             with tempfile.TemporaryDirectory(prefix="ao-reach-mtls-") as tmp:
                 key_path = Path(tmp) / "key.pem"
                 csr_path = Path(tmp) / "csr.pem"
-                await self._generate_key_and_csr(cn, key_path, csr_path)
+                await self._openssl_generate_key_and_csr(cn, key_path, csr_path)
                 csr_pem = csr_path.read_text(encoding="utf-8")
                 key_pem = key_path.read_text(encoding="utf-8")
                 enrolled = await self._post_enroll(
@@ -108,63 +108,33 @@ class ReachMtlsEnroller:
                 raise RuntimeError("enroll response missing certificatePem")
             return data
 
-    async def _generate_key_and_csr(
+    async def _openssl_generate_key_and_csr(
         self, cn: str, key_path: Path, csr_path: Path
     ) -> None:
-        """Prefer openssl when present; fall back to cryptography (HA Core image)."""
+        openssl = shutil.which("openssl")
+        if not openssl:
+            raise RuntimeError("openssl not found on PATH (required for mTLS enroll)")
+
+        def _run() -> None:
+            subprocess.run(
+                [
+                    openssl,
+                    "req",
+                    "-new",
+                    "-newkey",
+                    "rsa:2048",
+                    "-nodes",
+                    "-keyout",
+                    str(key_path),
+                    "-out",
+                    str(csr_path),
+                    "-subj",
+                    f"/CN={cn}",
+                ],
+                check=True,
+                capture_output=True,
+            )
+
         import asyncio
 
-        openssl = shutil.which("openssl")
-        if openssl:
-
-            def _run_openssl() -> None:
-                subprocess.run(
-                    [
-                        openssl,
-                        "req",
-                        "-new",
-                        "-newkey",
-                        "rsa:2048",
-                        "-nodes",
-                        "-keyout",
-                        str(key_path),
-                        "-out",
-                        str(csr_path),
-                        "-subj",
-                        f"/CN={cn}",
-                    ],
-                    check=True,
-                    capture_output=True,
-                )
-
-            await asyncio.to_thread(_run_openssl)
-            return
-
-        def _run_cryptography() -> None:
-            try:
-                from cryptography import x509
-                from cryptography.hazmat.primitives import hashes, serialization
-                from cryptography.hazmat.primitives.asymmetric import rsa
-                from cryptography.x509.oid import NameOID
-            except ImportError as exc:  # pragma: no cover
-                raise RuntimeError(
-                    "openssl not on PATH and cryptography is unavailable "
-                    "(required for mTLS enroll on Home Assistant Core)"
-                ) from exc
-
-            key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-            csr = (
-                x509.CertificateSigningRequestBuilder()
-                .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, cn)]))
-                .sign(key, hashes.SHA256())
-            )
-            key_path.write_bytes(
-                key.private_bytes(
-                    encoding=serialization.Encoding.PEM,
-                    format=serialization.PrivateFormat.TraditionalOpenSSL,
-                    encryption_algorithm=serialization.NoEncryption(),
-                )
-            )
-            csr_path.write_bytes(csr.public_bytes(serialization.Encoding.PEM))
-
-        await asyncio.to_thread(_run_cryptography)
+        await asyncio.to_thread(_run)
