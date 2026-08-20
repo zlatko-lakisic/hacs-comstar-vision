@@ -46,6 +46,36 @@ image_analyzer:
         number:
           min: 320
           max: 4096
+    priority:
+      name: AO Reach queue priority
+      description: >
+        realtime — link-time recognition (active visit hop). normal — confirm linked step.
+        background — deferred end-of-visit narrative. Default realtime.
+      example: realtime
+      selector:
+        select:
+          options:
+            - realtime
+            - normal
+            - background
+            - low
+            - high
+    visit_id:
+      name: Visit ID
+      description: Property visit correlation id (logging).
+      selector:
+        text:
+    visit_context:
+      name: Visit context
+      description: Prior path, faces, timestamps for cross-camera prompts.
+      selector:
+        text:
+          multiline: true
+    camera_labels:
+      name: Camera frame map
+      description: e.g. driveway:1-4,east_side:5-7 for multi-camera bursts.
+      selector:
+        text:
     mock_reply:
       name: Mock reply (tests only)
       selector:
