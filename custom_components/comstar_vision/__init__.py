@@ -180,14 +180,33 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     enroll_token = str(data.get(CONF_ENROLL_TOKEN) or "").strip()
     if enroll_token:
-        result = await pairing.enroll(enroll_token)
-        if not result.get("ok"):
-            _LOGGER.error("AO mTLS enrollment failed: %s", result.get("error"))
-        hass.config_entries.async_update_entry(
-            entry,
-            data={k: v for k, v in entry.data.items() if k != CONF_ENROLL_TOKEN},
-            options={k: v for k, v in entry.options.items() if k != CONF_ENROLL_TOKEN},
+        result = await pairing.enroll(
+            enroll_token, client_name=str(data.get(CONF_APP_ID) or DEFAULT_APP_ID)
         )
+        notify_payload = {
+            "ok": bool(result.get("ok")),
+            "engine_url": engine_url,
+            "subject": result.get("subject") or data.get(CONF_APP_ID) or DEFAULT_APP_ID,
+            "error": result.get("error"),
+        }
+        from .config_flow import _async_notify_enroll_result
+
+        await _async_notify_enroll_result(hass, notify_payload)
+        if result.get("ok"):
+            hass.config_entries.async_update_entry(
+                entry,
+                data={k: v for k, v in entry.data.items() if k != CONF_ENROLL_TOKEN},
+                options={
+                    k: v for k, v in entry.options.items() if k != CONF_ENROLL_TOKEN
+                },
+            )
+        else:
+            _LOGGER.error("AO mTLS enrollment failed: %s", result.get("error"))
+            from homeassistant.exceptions import ConfigEntryError
+
+            raise ConfigEntryError(
+                f"AO mTLS enrollment failed for {engine_url}: {result.get('error')}"
+            )
 
     async def _image_analyzer(call: ServiceCall) -> dict[str, Any]:
         return await _async_image_analyzer(hass, call)
@@ -235,6 +254,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         sess = rt.get("session")
         if result.get("ok") and sess is not None:
             await sess.stop()
+        notify_payload = {
+            "ok": bool(result.get("ok")),
+            "engine_url": getattr(pair_svc, "engine_url", ""),
+            "subject": result.get("subject")
+            or call.data.get("client_name")
+            or DEFAULT_APP_ID,
+            "error": result.get("error"),
+        }
+        from .config_flow import _async_notify_enroll_result
+
+        await _async_notify_enroll_result(hass, notify_payload)
         hass.bus.async_fire(f"{DOMAIN}_pair_result", result)
         return result
 
