@@ -58,6 +58,10 @@ IMAGE_ANALYZER_SCHEMA = vol.Schema(
         vol.Optional("temperature"): vol.Coerce(float),
         vol.Optional("max_tokens"): vol.Coerce(int),
         vol.Optional("target_width"): vol.Coerce(int),
+        vol.Optional("priority"): cv.string,
+        vol.Optional("visit_id"): cv.string,
+        vol.Optional("visit_context"): cv.string,
+        vol.Optional("camera_labels"): cv.string,
         vol.Optional("selected_agents"): vol.All(cv.ensure_list, [cv.string]),
         vol.Optional("timeout"): vol.Coerce(float),
         # llmvision drop-in no-ops
@@ -354,6 +358,17 @@ async def _async_image_analyzer(hass: HomeAssistant, call: ServiceCall) -> dict[
     if not message:
         return _empty_response(error="message is empty", question_id="")
 
+    visit_id = str(call.data.get("visit_id") or "").strip()
+    visit_context = str(call.data.get("visit_context") or "").strip()
+    camera_labels = str(call.data.get("camera_labels") or "").strip()
+    if visit_context and visit_context not in message:
+        message = f"{message}\n\nVisit context: {visit_context}"
+    if camera_labels:
+        message = f"{message}\n\nCamera frame map: {camera_labels}"
+
+    priority_raw = call.data.get("priority")
+    priority = str(priority_raw).strip() if priority_raw not in (None, "") else "realtime"
+
     # Optional escape hatch only — AO picks the vision model by default.
     model = str(call.data.get("model") or "").strip()
     agents = list(call.data.get("selected_agents") or rt.get("enabled_agents") or [])
@@ -369,6 +384,7 @@ async def _async_image_analyzer(hass: HomeAssistant, call: ServiceCall) -> dict[
             images=images,
             selected_agent_provider_ids=agents or None,
             timeout=timeout,
+            priority=priority,
         )
     except Exception as exc:  # noqa: BLE001
         err = str(exc)
@@ -392,4 +408,6 @@ async def _async_image_analyzer(hass: HomeAssistant, call: ServiceCall) -> dict[
         "error": "",
         "image_count": len(images),
         "agents_used": agents,
+        "priority": priority,
+        "visit_id": visit_id,
     }

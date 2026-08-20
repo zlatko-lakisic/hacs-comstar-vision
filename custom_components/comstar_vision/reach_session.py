@@ -140,6 +140,7 @@ class VisionReachSession:
         images: list[dict[str, Any]],
         selected_agent_provider_ids: list[str] | None = None,
         timeout: float = 180.0,
+        priority: str | int | None = "realtime",
     ) -> dict[str, Any]:
         """Send multimodal chat with stills to the vision overlay agent(s)."""
         await self.ensure_started()
@@ -157,7 +158,7 @@ class VisionReachSession:
             run_mode="dynamic",
             selected_agent_provider_ids=agents,
             images=images,
-            priority="realtime",
+            priority=priority or "realtime",
             timeout=timeout,
         )
 
