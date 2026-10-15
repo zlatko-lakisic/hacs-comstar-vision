@@ -9,7 +9,7 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant import config_entries
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import selector
 
@@ -205,11 +205,86 @@ async def _fetch_catalog(
         return None
 
 
+async def _async_enroll_token(
+    *,
+    engine_url: str,
+    enroll_token: str,
+    material_dir: Path,
+    app_id: str,
+) -> dict[str, Any]:
+    """Redeem enroll token against engine_url.
+
+    On success, mTLS PEMs are overwritten for this material_dir. On failure the
+    previous pairing files are left untouched.
+
+    Returns ``{"ok": True, "engine_url", "subject", ...}`` or
+    ``{"ok": False, "error": "..."}``.
+    """
+    from .pairing import AoPairingService
+
+    token = (enroll_token or "").strip()
+    if not token:
+        return {"ok": True, "skipped": True}
+
+    base = engine_url.rstrip("/")
+    pairing = AoPairingService(engine_url=base, material_dir=material_dir)
+    result = await pairing.enroll(token, client_name=app_id or DEFAULT_APP_ID)
+    if result.get("ok"):
+        return {
+            "ok": True,
+            "engine_url": base,
+            "subject": result.get("subject") or app_id or DEFAULT_APP_ID,
+            "paired": True,
+        }
+    return {
+        "ok": False,
+        "engine_url": base,
+        "error": str(result.get("error") or "AO mTLS enrollment failed"),
+    }
+
+
+async def _async_notify_enroll_result(
+    hass: HomeAssistant, result: dict[str, Any]
+) -> None:
+    """Surface enroll success/failure as a persistent notification."""
+    engine = str(result.get("engine_url") or "").strip() or "(unknown)"
+    if result.get("ok") and not result.get("skipped"):
+        subject = str(result.get("subject") or DEFAULT_APP_ID)
+        await hass.services.async_call(
+            "persistent_notification",
+            "create",
+            {
+                "notification_id": "comstar_vision_enroll",
+                "title": "Comstar Vision enrolled",
+                "message": (
+                    f"mTLS enrollment succeeded.\n"
+                    f"Server: {engine}\n"
+                    f"Client: {subject}"
+                ),
+            },
+            blocking=False,
+        )
+        return
+    if result.get("ok"):
+        return
+    err = str(result.get("error") or "unknown error")
+    await hass.services.async_call(
+        "persistent_notification",
+        "create",
+        {
+            "notification_id": "comstar_vision_enroll",
+            "title": "Comstar Vision enrollment failed",
+            "message": f"Server: {engine}\nError: {err}",
+        },
+        blocking=False,
+    )
+
+
 def _entry_payload(
     connection: dict[str, Any],
     capabilities: dict[str, Any],
 ) -> dict[str, Any]:
-    enroll = (connection.get(CONF_ENROLL_TOKEN) or "").strip()
+    # Enroll tokens are one-shot and must not be persisted once redeemed in the flow.
     agents = _normalize_id_list(capabilities.get(CONF_ENABLED_AGENTS))
     mcps = [
         x
@@ -223,7 +298,6 @@ def _entry_payload(
     ]
     harness = str(capabilities.get(CONF_HARNESS_PROFILE) or "").strip()
     return {
-        **({CONF_ENROLL_TOKEN: enroll} if enroll else {}),
         CONF_ENGINE_URL: str(connection[CONF_ENGINE_URL]).rstrip("/"),
         CONF_API_TOKEN: connection.get(CONF_API_TOKEN) or "",
         CONF_APP_ID: connection.get(CONF_APP_ID) or DEFAULT_APP_ID,
@@ -242,6 +316,21 @@ def _entry_payload(
     }
 
 
+def _catalog_status_text(
+    catalog: ReachCatalog | None, enroll_status: str | None = None
+) -> str:
+    parts: list[str] = []
+    if enroll_status:
+        parts.append(enroll_status)
+    if catalog is not None:
+        parts.append("Loaded from AO catalog.")
+    else:
+        parts.append(
+            "Catalog unavailable — enter IDs manually (comma or newline separated)."
+        )
+    return " ".join(parts)
+
+
 class ComstarVisionConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Comstar Vision."""
 
@@ -250,34 +339,45 @@ class ComstarVisionConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         self._connection: dict[str, Any] = {}
         self._catalog: ReachCatalog | None = None
+        self._enroll_status: str | None = None
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         if self._async_current_entries():
             return self.async_abort(reason="single_instance_allowed")
         if user_input is not None:
             self._connection = dict(user_input)
+            # First install: keep enroll_token in entry data so async_setup_entry can
+            # redeem it into the entry-scoped material dir, then notify + clear.
+            if str(user_input.get(CONF_ENROLL_TOKEN) or "").strip():
+                self._enroll_status = (
+                    "Enrollment token accepted — pairing will complete when the "
+                    f"integration loads against {str(user_input[CONF_ENGINE_URL]).rstrip('/')}."
+                )
             self._catalog = await _fetch_catalog(
                 engine_url=str(user_input[CONF_ENGINE_URL]),
                 api_token=str(user_input.get(CONF_API_TOKEN) or ""),
                 app_id=str(user_input.get(CONF_APP_ID) or DEFAULT_APP_ID),
             )
             return await self.async_step_capabilities()
-        return self.async_show_form(step_id="user", data_schema=_connection_schema())
+        return self.async_show_form(
+            step_id="user",
+            data_schema=_connection_schema(),
+            description_placeholders={"enroll_error": ""},
+        )
 
     async def async_step_capabilities(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         if user_input is not None:
-            return self.async_create_entry(
-                title="Comstar Vision",
-                data=_entry_payload(self._connection, user_input),
-            )
+            payload = _entry_payload(self._connection, user_input)
+            # Preserve one-shot token for setup_entry on first install only.
+            enroll = str(self._connection.get(CONF_ENROLL_TOKEN) or "").strip()
+            if enroll:
+                payload[CONF_ENROLL_TOKEN] = enroll
+            return self.async_create_entry(title="Comstar Vision", data=payload)
         description_placeholders = {
-            "catalog_status": (
-                "Loaded from AO catalog."
-                if self._catalog is not None
-                else "Catalog unavailable — enter IDs manually (comma or newline separated)."
-            )
+            "catalog_status": _catalog_status_text(self._catalog, self._enroll_status),
+            "enroll_error": "",
         }
         return self.async_show_form(
             step_id="capabilities",
@@ -306,23 +406,51 @@ class ComstarVisionOptionsFlow(config_entries.OptionsFlow):
     def __init__(self) -> None:
         self._connection: dict[str, Any] = {}
         self._catalog: ReachCatalog | None = None
+        self._enroll_status: str | None = None
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         defaults = {**self.config_entry.data, **self.config_entry.options}
+        errors: dict[str, str] = {}
+        placeholders: dict[str, str] = {"enroll_error": ""}
         if user_input is not None:
             self._connection = dict(user_input)
+            engine_url = str(user_input[CONF_ENGINE_URL]).rstrip("/")
+            app_id = str(user_input.get(CONF_APP_ID) or DEFAULT_APP_ID)
+            enroll_token = str(user_input.get(CONF_ENROLL_TOKEN) or "").strip()
             material_dir = Path(
                 self.hass.config.path(f"comstar_vision_mtls_{self.config_entry.entry_id}")
             )
-            self._catalog = await _fetch_catalog(
-                engine_url=str(user_input[CONF_ENGINE_URL]),
-                api_token=str(user_input.get(CONF_API_TOKEN) or ""),
-                app_id=str(user_input.get(CONF_APP_ID) or DEFAULT_APP_ID),
-                material_dir=material_dir,
-            )
-            return await self.async_step_capabilities()
+            if enroll_token:
+                result = await _async_enroll_token(
+                    engine_url=engine_url,
+                    enroll_token=enroll_token,
+                    material_dir=material_dir,
+                    app_id=app_id,
+                )
+                await _async_notify_enroll_result(self.hass, result)
+                if not result.get("ok"):
+                    errors["enroll_token"] = "enroll_failed"
+                    placeholders["enroll_error"] = str(result.get("error") or "")
+                else:
+                    self._enroll_status = (
+                        f"Enrolled successfully to {result.get('engine_url')} "
+                        f"(client: {result.get('subject')})."
+                    )
+            # Never persist one-shot enroll tokens.
+            self._connection.pop(CONF_ENROLL_TOKEN, None)
+            if not errors:
+                self._catalog = await _fetch_catalog(
+                    engine_url=engine_url,
+                    api_token=str(user_input.get(CONF_API_TOKEN) or ""),
+                    app_id=app_id,
+                    material_dir=material_dir,
+                )
+                return await self.async_step_capabilities()
         return self.async_show_form(
-            step_id="init", data_schema=_connection_schema(defaults)
+            step_id="init",
+            data_schema=_connection_schema(defaults),
+            errors=errors,
+            description_placeholders=placeholders,
         )
 
     async def async_step_capabilities(
@@ -335,11 +463,8 @@ class ComstarVisionOptionsFlow(config_entries.OptionsFlow):
                 data=_entry_payload(self._connection, user_input),
             )
         description_placeholders = {
-            "catalog_status": (
-                "Loaded from AO catalog."
-                if self._catalog is not None
-                else "Catalog unavailable — enter IDs manually (comma or newline separated)."
-            )
+            "catalog_status": _catalog_status_text(self._catalog, self._enroll_status),
+            "enroll_error": "",
         }
         return self.async_show_form(
             step_id="capabilities",

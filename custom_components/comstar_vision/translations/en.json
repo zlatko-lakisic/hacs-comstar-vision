@@ -12,6 +12,9 @@
           "ttl_seconds": "Session TTL seconds",
           "default_target_width": "Default still width (px)",
           "multimodal_ready": "AO multimodal images ready"
+        },
+        "data_description": {
+          "enroll_token": "Paste a fresh token from this engine. On success you get a notification naming the server."
         }
       },
       "capabilities": {
@@ -26,6 +29,9 @@
         }
       }
     },
+    "error": {
+      "enroll_failed": "mTLS enrollment failed: {enroll_error}"
+    },
     "abort": {
       "single_instance_allowed": "Only one Comstar Vision entry is allowed."
     }
@@ -34,7 +40,7 @@
     "step": {
       "init": {
         "title": "Comstar Vision — connection",
-        "description": "Engine connection settings. AO picks the vision model.",
+        "description": "Engine connection settings. Paste a new mTLS enrollment token to re-pair (required after changing the engine host). Leave blank to keep the current pairing. AO picks the vision model.",
         "data": {
           "engine_url": "AO engine base URL",
           "api_token": "API token (ao_…)",
@@ -43,6 +49,9 @@
           "ttl_seconds": "Session TTL seconds",
           "default_target_width": "Default still width (px)",
           "multimodal_ready": "AO multimodal images ready"
+        },
+        "data_description": {
+          "enroll_token": "On success you get a notification naming the server URL. On failure the form shows the error and the previous pairing is left unchanged."
         }
       },
       "capabilities": {
@@ -56,6 +65,9 @@
           "session_env": "Session env (KEY=VALUE per line)"
         }
       }
+    },
+    "error": {
+      "enroll_failed": "mTLS enrollment failed: {enroll_error}"
     }
   }
 }
